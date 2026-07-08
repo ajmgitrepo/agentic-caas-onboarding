@@ -1,4 +1,5 @@
 import type { GeneratedPlan, IntakeState } from './types';
+import { generateYaml, generateTerraform, generateJiraStories } from './artifactGenerators';
 
 const titleCase = (value: string) =>
   value
@@ -62,99 +63,9 @@ export function generatePlan(input: IntakeState): GeneratedPlan {
   const readinessScore = Math.max(15, Math.min(100, 100 - missingInputs.length * 10 - guardrails.length * 12));
   const riskLevel = guardrails.length >= 3 || input.environment === 'prod' ? 'high' : guardrails.length > 0 ? 'medium' : 'low';
 
-  const registry = input.containerRegistry || '<registry>/<image>:<tag>';
-  const yaml = `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${serviceName}
-  namespace: ${appSlug}-${input.environment}
-  labels:
-    app: ${serviceName}
-spec:
-  replicas: ${input.autoscalingRequired ? 2 : 1}
-  selector:
-    matchLabels:
-      app: ${serviceName}
-  template:
-    metadata:
-      labels:
-        app: ${serviceName}
-    spec:
-      containers:
-        - name: ${serviceName}
-          image: ${registry}
-          ports:
-            - containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: 8080
-          livenessProbe:
-            httpGet:
-              path: /health/live
-              port: 8080
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${serviceName}
-  namespace: ${appSlug}-${input.environment}
-spec:
-  selector:
-    app: ${serviceName}
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 8080
-${input.autoscalingRequired ? `---
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: ${serviceName}-hpa
-  namespace: ${appSlug}-${input.environment}
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: ${serviceName}
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70` : ''}`;
-
-  const terraform = `app_name        = "${appSlug}"
-environment     = "${input.environment}"
-owner_group     = "${input.ownerGroup || '<owner-group>'}"
-application_id  = "${input.applicationId || '<application-id>'}"
-service_count   = ${input.serviceCount}
-ingress_type    = "${input.ingressType}"
-dns_hostname    = "${input.dnsHostname || '<dns-hostname>'}"
-database_need   = "${input.databaseNeed}"
-secrets_enabled = ${input.secretsRequired}
-autoscaling     = ${input.autoscalingRequired}
-observability   = ${input.observabilityRequired}`;
-
-  const jiraStories = `Epic: Onboard ${input.appName || 'application'} to CaaS
-
-Story 1: Validate onboarding intake
-As a platform engineer, I need ownership, environment, traffic, and dependency details so that the onboarding request can be evaluated safely.
-
-Story 2: Generate deployment foundation
-As a developer, I need namespace, service, and deployment artifacts so that my application can be deployed consistently.
-
-Story 3: Configure platform dependencies
-As a developer, I need ingress, secrets, database, and observability dependencies configured so that my services are production-ready.
-
-Story 4: Run policy and readiness validation
-As a platform owner, I need guardrail checks before execution so that risky or incomplete changes are not promoted.
-
-Story 5: Prepare approval package
-As an approver, I need a summarized plan, generated artifacts, and known risks so that I can approve or reject the request.`;
+  const yaml = generateYaml(input, appSlug, serviceName);
+  const terraform = generateTerraform(input, appSlug);
+  const jiraStories = generateJiraStories(input);
 
   return {
     interpretedRequirements,
